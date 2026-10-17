@@ -723,3 +723,52 @@ func TestRestartReasonSurvivesAConcurrentWrite(t *testing.T) {
 		t.Fatalf("the restart reason did not survive: %+v", got.Status.LastRestartReason)
 	}
 }
+
+// TestContainerRunsTheServerBinary. Args alone replace the image's CMD, and the
+// upstream image has no ENTRYPOINT: the kubelet would exec "--config" and the
+// container would never start. Found only against a real server image.
+func TestContainerRunsTheServerBinary(t *testing.T) {
+	h := newHarness(t)
+	h.server("bin")
+	h.reconcile("bin")
+
+	c := h.statefulSet("bin").Spec.Template.Spec.Containers[0]
+	if len(c.Command) == 0 || c.Command[0] != "./server" {
+		t.Fatalf("command must name the server binary, got %q with args %q", c.Command, c.Args)
+	}
+}
+
+// TestPodChangesReachTheServer. A crash changes the pod and nothing else: the
+// StatefulSet's ready count stays at zero, so without a pod watch Degraded keeps
+// saying "serving" for a container that has never started.
+func TestPodChangesReachTheServer(t *testing.T) {
+	r := &OtterStaxServerReconciler{}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "live", Name: "demo-0",
+		Labels: map[string]string{NameLabel: "otterstax", InstanceLabel: "demo"},
+	}}
+	reqs := r.serverForPod(context.Background(), pod)
+	if len(reqs) != 1 || reqs[0].Namespace != "live" || reqs[0].Name != "demo" {
+		t.Fatalf("expected a request for live/demo, got %v", reqs)
+	}
+
+	stranger := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "live", Name: "x", Labels: map[string]string{InstanceLabel: "demo"}}}
+	if reqs := r.serverForPod(context.Background(), stranger); len(reqs) != 0 {
+		t.Errorf("a pod not labelled as an otterstax server must not enqueue anything, got %v", reqs)
+	}
+}
+
+// TestBrokenRolloutIsReplaceable. Under OrderedReady the StatefulSet controller
+// will not replace a pod that is not Running and Ready, so a bad image or config
+// leaves the pod crash-looping on the old revision even after the spec is fixed,
+// until someone deletes it by hand. With one replica ordering means nothing, and
+// Parallel lets the fix roll out. Seen on kind 1.36 against a real server image.
+func TestBrokenRolloutIsReplaceable(t *testing.T) {
+	h := newHarness(t)
+	h.server("fixable")
+	h.reconcile("fixable")
+
+	if p := h.statefulSet("fixable").Spec.PodManagementPolicy; p != appsv1.ParallelPodManagement {
+		t.Fatalf("podManagementPolicy is %s; a crash-looping pod would block every later rollout", p)
+	}
+}

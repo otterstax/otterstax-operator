@@ -61,3 +61,16 @@ func TestCrashLoopIsStillReported(t *testing.T) {
 		}
 	}
 }
+
+// TestFirstCrashIsReported. Until the first restart the exit code is in State,
+// not LastTerminationState; a container that cannot even start must not be
+// reported as serving in that window.
+func TestFirstCrashIsReported(t *testing.T) {
+	pod := podWith(corev1.ContainerStatus{
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 128, Reason: "StartError"}},
+	})
+	c := diagnoseCrash(pod)
+	if c == nil || c.Reason != ReasonCrashLooping {
+		t.Fatalf("got %+v, want reason %s", c, ReasonCrashLooping)
+	}
+}

@@ -509,8 +509,23 @@ func (r *OtterStaxServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&v1alpha1.OtterStaxConnection{},
 			handler.EnqueueRequestsFromMapFunc(r.serversForConnection),
 		).
+		// Pods are owned by the StatefulSet, not the server, and a crash changes
+		// nothing on the StatefulSet: Degraded would go stale without this.
+		Watches(
+			&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.serverForPod),
+		).
 		Named("otterstaxserver").
 		Complete(r)
+}
+
+// serverForPod maps a server pod back to its server by the labels it was given.
+func (r *OtterStaxServerReconciler) serverForPod(_ context.Context, obj client.Object) []reconcile.Request {
+	l := obj.GetLabels()
+	if l[NameLabel] != appName || l[InstanceLabel] == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.GetNamespace(), Name: l[InstanceLabel]}}}
 }
 
 // serversForConnection maps a changed connection back to every server whose

@@ -42,7 +42,7 @@ type OtterStaxConnectionSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern=`^[a-zA-Z_][a-zA-Z0-9_]*$`
+	// +kubebuilder:validation:Pattern=`^[a-z_][a-z0-9_]*$`
 	Alias string `json:"alias"`
 
 	// +optional

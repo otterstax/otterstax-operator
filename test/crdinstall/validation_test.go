@@ -134,7 +134,10 @@ func TestAliasIsASQLIdentifier(t *testing.T) {
 	c := newEnv(t)
 	ctx := context.Background()
 
-	for _, bad := range []string{"my-alias", "my.alias", "1alias", ""} {
+	// Upper case is rejected by the server itself since upstream e489588: an
+	// alias is written unquoted in SQL. Accepting it here moves the error from
+	// kubectl apply to a crash loop.
+	for _, bad := range []string{"my-alias", "my.alias", "1alias", "", "Billing"} {
 		if err := c.Create(ctx, conn(bad, func(s *v1alpha1.OtterStaxConnectionSpec) {
 			s.MySQL = validMySQL()
 		})); err == nil {
