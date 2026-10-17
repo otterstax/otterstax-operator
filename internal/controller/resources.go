@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,6 +60,12 @@ const (
 
 	// ConfigFileName is the file inside that directory.
 	ConfigFileName = "config.yaml"
+
+	// ContainerName is the server container in the pod template.
+	ContainerName = "otterstax"
+
+	// dataVolumeName is the engine's emptyDir data directory.
+	dataVolumeName = "data"
 
 	// DataMountPath is where the engine writes.
 	//
@@ -157,10 +164,7 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 	if budget <= 0 {
 		budget = 900
 	}
-	failureThreshold := budget / probePeriod
-	if failureThreshold < 1 {
-		failureThreshold = 1
-	}
+	failureThreshold := max(budget/probePeriod, 1)
 
 	// Shutdown is unbounded in this server: gRPC is stopped without a deadline
 	// and in-flight coroutines are destroyed rather than drained. The grace
@@ -169,7 +173,7 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 	grace := int64(120)
 
 	container := corev1.Container{
-		Name:            "otterstax",
+		Name:            ContainerName,
 		Image:           server.Spec.Image,
 		ImagePullPolicy: server.Spec.ImagePullPolicy,
 		// The image's CMD is ./server with no arguments, which makes it read
@@ -184,7 +188,7 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "config", MountPath: ConfigMountPath, ReadOnly: true},
-			{Name: "data", MountPath: DataMountPath},
+			{Name: dataVolumeName, MountPath: DataMountPath},
 			{Name: "s3-cache", MountPath: ScratchMountPath},
 			{Name: "s3-upload", MountPath: UploadMountPath},
 		},
@@ -237,7 +241,7 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 						},
 					},
 				},
-				{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				{Name: dataVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 				{Name: "s3-cache", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 				{Name: "s3-upload", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			},
@@ -262,9 +266,7 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 	if tpl.Labels == nil {
 		tpl.Labels = map[string]string{}
 	}
-	for k, v := range l {
-		tpl.Labels[k] = v
-	}
+	maps.Copy(tpl.Labels, l)
 
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{

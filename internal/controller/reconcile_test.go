@@ -194,7 +194,7 @@ func TestUnchangedSpecDoesNotRoll(t *testing.T) {
 	h.reconcile("srv")
 	first := h.statefulSet("srv").Spec.Template.Annotations[ConfigHashAnnotation]
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		h.reconcile("srv")
 		if got := h.statefulSet("srv").Spec.Template.Annotations[ConfigHashAnnotation]; got != first {
 			t.Fatalf("hash changed on reconcile %d with no spec change: %s -> %s", i, first, got)

@@ -181,7 +181,7 @@ func main() {
 	if err := (&controller.OtterStaxServerReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("otterstaxserver"),
+		Recorder: mgr.GetEventRecorder("otterstaxserver"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "otterstaxserver")
 		os.Exit(1)

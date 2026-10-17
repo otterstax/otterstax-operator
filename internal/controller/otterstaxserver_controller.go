@@ -19,7 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -64,7 +65,7 @@ const (
 type OtterStaxServerReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=otterstax.com,resources=otterstaxservers,verbs=get;list;watch;create;update;patch;delete
@@ -77,7 +78,7 @@ type OtterStaxServerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile drives one server towards its spec.
 //
@@ -191,7 +192,7 @@ func (r *OtterStaxServerReconciler) connectionsFor(ctx context.Context, server *
 	// List order is not guaranteed, and the rendered config must be a pure
 	// function of its inputs. Sorting by name makes the order an explicit
 	// property of the objects rather than an accident of the API server.
-	sort.Slice(list.Items, func(i, j int) bool { return list.Items[i].Name < list.Items[j].Name })
+	slices.SortFunc(list.Items, func(a, b v1alpha1.OtterStaxConnection) int { return strings.Compare(a.Name, b.Name) })
 	return list.Items, nil
 }
 
@@ -329,7 +330,7 @@ func classifyRoll(existing, desired *appsv1.StatefulSet) (v1alpha1.RestartReason
 
 func containerImage(tpl *corev1.PodTemplateSpec) string {
 	for i := range tpl.Spec.Containers {
-		if tpl.Spec.Containers[i].Name == "otterstax" {
+		if tpl.Spec.Containers[i].Name == ContainerName {
 			return tpl.Spec.Containers[i].Image
 		}
 	}
@@ -353,7 +354,7 @@ func (r *OtterStaxServerReconciler) recordRestart(server *v1alpha1.OtterStaxServ
 		Detail: detail,
 	}
 	if r.Recorder != nil {
-		r.Recorder.Eventf(server, corev1.EventTypeNormal, string(reason), "rolling the workload: %s", detail)
+		r.Recorder.Eventf(server, nil, corev1.EventTypeNormal, string(reason), "RollWorkload", "rolling the workload: %s", detail)
 	}
 }
 
@@ -393,8 +394,8 @@ func (r *OtterStaxServerReconciler) collectOldRevisions(ctx context.Context, ser
 	}
 
 	// Newest first, so the ones kept are the most plausible rollback targets.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[j].CreationTimestamp.Before(&candidates[i].CreationTimestamp)
+	slices.SortFunc(candidates, func(a, b corev1.Secret) int {
+		return b.CreationTimestamp.Compare(a.CreationTimestamp.Time)
 	})
 
 	for i := keptRevisions; i < len(candidates); i++ {

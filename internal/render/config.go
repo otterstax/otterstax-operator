@@ -41,7 +41,7 @@ package render
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	v1alpha1 "github.com/otterstax/otterstax-operator/api/v1alpha1"
@@ -150,7 +150,7 @@ func requireAll(kind string, fields map[string]string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	sort.Strings(missing) // map iteration is random; the message must not be
+	slices.Sort(missing) // map iteration is random; the message must not be
 	return fmt.Errorf("%s: missing required %s", kind, strings.Join(missing, ", "))
 }
 

@@ -201,7 +201,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 	}}
 
 	first := mustRender(t, in)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		if got := mustRender(t, in); got != first {
 			t.Fatalf("render %d differed from the first", i)
 		}

@@ -82,7 +82,7 @@ func TestEveryCELRuleGuardsItsFields(t *testing.T) {
 			t.Fatalf("reading %s: %v", e.Name(), err)
 		}
 
-		for _, line := range strings.Split(string(raw), "\n") {
+		for line := range strings.SplitSeq(string(raw), "\n") {
 			trimmed := strings.TrimSpace(line)
 			if !strings.HasPrefix(trimmed, "- rule:") && !strings.HasPrefix(trimmed, "rule:") {
 				continue
