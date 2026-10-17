@@ -136,7 +136,12 @@ func diagnoseCrash(pod *corev1.Pod) *metav1.Condition {
 		if cs.Ready && cs.State.Running != nil {
 			continue
 		}
-		term := cs.LastTerminationState.Terminated
+		// Until the first restart the exit code is in State, not in
+		// LastTerminationState.
+		term := cs.State.Terminated
+		if term == nil {
+			term = cs.LastTerminationState.Terminated
+		}
 		if term == nil || term.ExitCode == 0 {
 			continue
 		}

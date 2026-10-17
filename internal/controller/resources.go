@@ -61,6 +61,9 @@ const (
 	// ConfigFileName is the file inside that directory.
 	ConfigFileName = "config.yaml"
 
+	// appName is the value of NameLabel on everything the operator creates.
+	appName = "otterstax"
+
 	// ContainerName is the server container in the pod template.
 	ContainerName = "otterstax"
 
@@ -110,7 +113,7 @@ func ConfigSecretName(serverName, hash string) string {
 
 func labelsFor(server *v1alpha1.OtterStaxServer) map[string]string {
 	return map[string]string{
-		NameLabel:     "otterstax",
+		NameLabel:     appName,
 		InstanceLabel: server.Name,
 	}
 }
@@ -178,8 +181,10 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 		ImagePullPolicy: server.Spec.ImagePullPolicy,
 		// The image's CMD is ./server with no arguments, which makes it read
 		// config.yaml relative to its working directory. Point it at the mount
-		// explicitly rather than relying on that.
-		Args: []string{"--config", ConfigMountPath + "/" + ConfigFileName},
+		// explicitly rather than relying on that. Command is restated because
+		// args replace CMD, and the image has no ENTRYPOINT to fall back on.
+		Command: []string{"./server"},
+		Args:    []string{"--config", ConfigMountPath + "/" + ConfigFileName},
 		Ports: []corev1.ContainerPort{
 			{Name: FlightSQLPortName, ContainerPort: server.Spec.Service.FlightSQLPort},
 			{Name: MySQLPortName, ContainerPort: server.Spec.Service.MySQLPort},
@@ -275,9 +280,11 @@ func BuildStatefulSet(server *v1alpha1.OtterStaxServer, hash string) (*appsv1.St
 			Labels:    l,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:            &replicas,
-			ServiceName:         server.Name + "-headless",
-			PodManagementPolicy: appsv1.OrderedReadyPodManagement,
+			Replicas:    &replicas,
+			ServiceName: server.Name + "-headless",
+			// Not OrderedReady: it refuses to replace a pod that is not Ready,
+			// so a bad image or config would block the rollout that fixes it.
+			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Selector:            &metav1.LabelSelector{MatchLabels: l},
 			Template:            tpl,
 		},
