@@ -1,0 +1,14 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Configuration
+metadata:
+  name: otterstax-operator
+spec:
+  timeouts:
+    apply: 1m
+    assert: 2m
+    cleanup: 1m
+    delete: 1m
+    exec: 3m
+  # Each test gets its own namespace, so fixtures cannot leak between them.
+  namespace: ""
+  parallel: 2

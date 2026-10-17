@@ -1,0 +1,12 @@
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxServer
+metadata:
+  labels:
+    app.kubernetes.io/name: otterstax-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: otterstaxserver-sample
+spec:
+  image: ghcr.io/otterstax/otterstax:<tag>   # required; upstream publishes no image yet
+  connectionSelector:
+    matchLabels:
+      server: otterstaxserver-sample

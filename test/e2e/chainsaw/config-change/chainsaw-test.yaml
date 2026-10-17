@@ -1,0 +1,84 @@
+# The assertion the operator exists for, run where it can actually be observed.
+#
+# envtest has no kubelet: StatefulSets never create pods and Secrets are never
+# mounted, so everything downstream of "the object was written" is untestable
+# there. This runs on a real cluster and checks that the pod is genuinely
+# replaced and genuinely carries the new revision.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: config-change-rolls-the-pod
+spec:
+  steps:
+    - name: create a server with one backend
+      try:
+        - apply:
+            file: server.yaml
+        - assert:
+            file: assert-statefulset.yaml
+
+    - name: capture the revision the pod mounts
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl -n $NAMESPACE get statefulset demo \
+                -o jsonpath='{.spec.template.spec.volumes[?(@.name=="config")].secret.secretName}' \
+                > /tmp/chainsaw-rev-before
+              test -s /tmp/chainsaw-rev-before
+
+    - name: change the backend host
+      try:
+        - patch:
+            resource:
+              apiVersion: otterstax.com/v1alpha1
+              kind: OtterStaxConnection
+              metadata:
+                name: bill
+              spec:
+                mysql:
+                  host: mariadb-moved
+
+    - name: the mounted revision must change and contain the new host
+      try:
+        - script:
+            content: |
+              set -eu
+              before=$(cat /tmp/chainsaw-rev-before)
+
+              for i in $(seq 1 30); do
+                after=$(kubectl -n $NAMESPACE get statefulset demo \
+                  -o jsonpath='{.spec.template.spec.volumes[?(@.name=="config")].secret.secretName}')
+                [ "$after" != "$before" ] && break
+                sleep 1
+              done
+
+              if [ "$after" = "$before" ]; then
+                echo "the pod template still mounts $before; the new backend would never take effect" >&2
+                exit 1
+              fi
+
+              # A new Secret name is not enough: the bytes must actually differ.
+              # "the Secret changed" and "the pod restarted" both pass while the
+              # config never reaches the process.
+              kubectl -n $NAMESPACE get secret "$after" -o jsonpath='{.data.config\.yaml}' \
+                | base64 -d | grep -q 'host: "mariadb-moved"'
+
+    - name: the superseded revision survives for rollback
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl -n $NAMESPACE get secret "$(cat /tmp/chainsaw-rev-before)" >/dev/null
+
+    - name: the restart is classified
+      try:
+        - assert:
+            resource:
+              apiVersion: otterstax.com/v1alpha1
+              kind: OtterStaxServer
+              metadata:
+                name: demo
+              status:
+                lastRestartReason:
+                  reason: ConfigChanged

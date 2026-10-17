@@ -1,0 +1,666 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: otterstaxservers.otterstax.com
+spec:
+  group: otterstax.com
+  names:
+    kind: OtterStaxServer
+    listKind: OtterStaxServerList
+    plural: otterstaxservers
+    shortNames:
+    - otterstax
+    singular: otterstaxserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Available")].status
+      name: Ready
+      type: string
+    - jsonPath: .spec.image
+      name: Image
+      priority: 1
+      type: string
+    - jsonPath: .status.runningConfigHash
+      name: Config
+      priority: 1
+      type: string
+    - jsonPath: .status.lastRestartReason.reason
+      name: Last-Restart
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: OtterStaxServer is a single OtterStax federated SQL server.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              OtterStaxServerSpec describes a single OtterStax process.
+
+              There is deliberately no replicas field and no scale subresource. OtterStax
+              has no clustering of any kind: the scheduler is an in-process worker pool and
+              federation is client-side fan-out, so a second pod is a second, divergent
+              database rather than a replica. Omitting the field makes kubectl scale, HPA
+              and KEDA fail at the API server instead of silently splitting the workload.
+              Adding it later, if clustering ever lands, is backwards compatible.
+            properties:
+              clusterOperation:
+                default: {}
+                description: |-
+                  ClusterOperation are the two escape hatches every operator is eventually
+                  asked for, shipped before the incident rather than after it.
+                properties:
+                  reconciliationPaused:
+                    default: false
+                    description: |-
+                      ReconciliationPaused stops the controller writing to the cluster while
+                      leaving it reading and reporting. It exists for the case where an
+                      operator is making things worse and someone needs it to hold still
+                      without deleting it — the thing people otherwise achieve by scaling the
+                      controller to zero, which stops it for every object at once.
+                    type: boolean
+                  stopped:
+                    default: false
+                    description: |-
+                      Stopped scales the workload to zero while leaving everything else in
+                      place: the config revisions, the Services, the NetworkPolicy and the
+                      status all survive. It is the difference between "take this out of
+                      service for an hour" and "delete it and hope the config is in Git".
+                    type: boolean
+                type: object
+              connectionRetry:
+                default: {}
+                description: ConnectionRetry maps onto service.connection_retry in
+                  the server's config.
+                properties:
+                  delayMilliseconds:
+                    default: 1000
+                    description: |-
+                      DelayMilliseconds between attempts. Zero is not expressible: an omitted
+                      field and a zero one are the same thing on the wire, and both default.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  maxAttempts:
+                    default: 1
+                    description: MaxAttempts per backend. 1 means a single attempt,
+                      no retry.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
+              connectionSelector:
+                description: |-
+                  ConnectionSelector picks the OtterStaxConnection objects that make up this
+                  server's federated backends. Same namespace only: a cross-namespace
+                  reference is a privilege-escalation path, and the answer to wanting one is
+                  to replicate the object.
+
+                  A nil selector matches nothing, which is the safe reading — an operator
+                  that silently adopted every connection in the namespace would make adding
+                  an unrelated connection a live change to an unrelated server. An explicit
+                  empty selector (matchLabels: {}) matches everything, per label-selector
+                  convention.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              exposure:
+                default: {}
+                description: Exposure controls the client-facing Service.
+                properties:
+                  acknowledgeUnauthenticated:
+                    default: false
+                    description: |-
+                      AcknowledgeUnauthenticated must be set before the service leaves the
+                      cluster. It is not a formality: the MySQL handshake parses a username and
+                      password and discards them, Postgres sends an unconditional auth-ok,
+                      FlightSQL runs a no-op auth handler, and Spark Connect listens with
+                      insecure gRPC credentials and checks nothing.
+                    type: boolean
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Annotations are copied onto the client-facing Service.
+
+                      This is where cloud load-balancer configuration goes. The operator does
+                      not enumerate per-cloud annotations: there are hundreds, they change, and
+                      a list that is merely out of date is worse than none.
+                    maxProperties: 32
+                    type: object
+                  externalTrafficPolicy:
+                    description: |-
+                      ExternalTrafficPolicy: Local preserves the client source address, which
+                      matters if loadBalancerSourceRanges is doing the access control.
+                    enum:
+                    - Cluster
+                    - Local
+                    type: string
+                  loadBalancerClass:
+                    description: LoadBalancerClass selects a specific load-balancer
+                      implementation.
+                    maxLength: 253
+                    type: string
+                  loadBalancerSourceRanges:
+                    description: |-
+                      LoadBalancerSourceRanges restricts who may reach a LoadBalancer. Given
+                      nothing authenticates, this is the closest thing to access control that
+                      exists once the service leaves the cluster.
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                  type:
+                    default: ClusterIP
+                    description: Type of the client-facing Service.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: 'type NodePort or LoadBalancer publishes unauthenticated
+                    access to every federated backend; set acknowledgeUnauthenticated:
+                    true to confirm this is intended'
+                  rule: '!has(self.type) || self.type == ''ClusterIP'' || (has(self.acknowledgeUnauthenticated)
+                    && self.acknowledgeUnauthenticated)'
+              image:
+                description: |-
+                  Image is the OtterStax server image. Required: upstream publishes no
+                  image, so there is no defensible default to ship.
+                maxLength: 511
+                minLength: 1
+                type: string
+              imagePullPolicy:
+                default: IfNotPresent
+                description: ImagePullPolicy for the server container.
+                enum:
+                - Always
+                - IfNotPresent
+                - Never
+                type: string
+              imagePullSecrets:
+                description: |-
+                  ImagePullSecrets for private registries. Empty is the supported default:
+                  public GHCR packages pull anonymously, so the quickstart needs no secret.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 8
+                type: array
+              network:
+                default: {}
+                description: |-
+                  Network controls the generated NetworkPolicy.
+
+                  This is not a hardening option, it is the only access control that
+                  exists. No wire protocol authenticates: the MySQL handshake parses a
+                  username and password and discards them, Postgres sends an unconditional
+                  auth-ok, FlightSQL runs a no-op auth handler, and Spark Connect listens
+                  with insecure gRPC credentials and checks nothing.
+                  Anything that can open a TCP connection to this pod can read and write
+                  every federated system, using credentials the server holds on its behalf.
+                properties:
+                  allowIngressFrom:
+                    description: |-
+                      AllowIngressFrom names the pods permitted to reach the wire ports. Each
+                      entry selects pods; an entry with a namespaceSelector reaches across
+                      namespaces. Empty means nothing may connect, which is the correct default
+                      for a service that authenticates nobody.
+                    items:
+                      description: IngressPeer names a source permitted to reach the
+                        wire ports.
+                      properties:
+                        namespaceSelector:
+                          description: |-
+                            NamespaceSelector widens the scope beyond this namespace. Omitted, the
+                            peer is confined to the server's own namespace.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        podSelector:
+                          description: |-
+                            PodSelector selects pods. An empty selector matches every pod in scope,
+                            so it is required here — an accidental empty object would open the
+                            service to everything, which is exactly the state being prevented.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      required:
+                      - podSelector
+                      type: object
+                    maxItems: 32
+                    type: array
+                  policy:
+                    default: DefaultDeny
+                    description: |-
+                      Policy selects what the operator generates.
+
+                      DefaultDeny is the default: nothing may reach the wire ports until it is
+                      named in allowIngressFrom. None means the operator generates nothing and
+                      the cluster's own defaults apply — appropriate only when something else
+                      owns network policy, and never because the policy was inconvenient.
+                    enum:
+                    - DefaultDeny
+                    - None
+                    type: string
+                type: object
+              podOverrides:
+                description: |-
+                  PodOverrides is a strategic-merge patch applied to the generated pod
+                  template. Escape hatch for everything not modelled here: nodeSelector,
+                  tolerations, sidecars, extra volumes. Shipping it from day one is a
+                  lesson every operator learns the hard way.
+
+                  Deliberately RawExtension rather than a typed corev1.PodTemplateSpec:
+                  embedding the typed schema inflated this CRD to 600 KB, which is both
+                  poor practice and close enough to client and server limits to matter.
+                  The field is a freeform patch by definition, so the schema bought
+                  nothing it did not also cost.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              resources:
+                description: |-
+                  Resources for the server container.
+
+                  Note: OtterStax sizes every thread pool from hardware_concurrency(), which
+                  reports host cores and ignores the cgroup quota. A CPU limit therefore
+                  throttles a process that has already sized itself for the whole node.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              service:
+                default: {}
+                description: |-
+                  Service holds the wire-protocol listener settings. These map 1:1 onto the
+                  service: section of the server's config.yaml.
+                properties:
+                  flightSqlPort:
+                    default: 8815
+                    description: FlightSQLPort is the Arrow FlightSQL/gRPC listener.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  mysqlPort:
+                    default: 8816
+                    description: MySQLPort is the MySQL wire-protocol listener.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  postgresPort:
+                    default: 8817
+                    description: PostgresPort is the PostgreSQL wire-protocol listener.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  sparkConnectPort:
+                    default: 15002
+                    description: |-
+                      SparkConnectPort is the Spark Connect/gRPC listener. The server opens it
+                      unconditionally, so it is modelled even when nothing uses it.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                type: object
+              startup:
+                default: {}
+                description: |-
+                  Startup bounds how long the server may take to accept traffic. WAL replay
+                  is unbounded and connection registration is serial and blocking, so a
+                  fixed initialDelaySeconds is always wrong; the controller derives
+                  failureThreshold from this budget instead.
+                properties:
+                  budgetSeconds:
+                    default: 900
+                    description: |-
+                      BudgetSeconds is the total time the server may take to open its listeners.
+                      The controller computes the startup probe's failureThreshold from it.
+                    format: int32
+                    maximum: 7200
+                    minimum: 30
+                    type: integer
+                type: object
+            required:
+            - image
+            type: object
+          status:
+            description: |-
+              OtterStaxServerStatus reports what the controller can actually observe.
+
+              The server exposes no health endpoint, no metrics and no admin API, and it
+              reaches Ready with zero working backends. Status is therefore explicit about
+              the difference between what was rendered and what is running, rather than
+              implying knowledge the controller does not have.
+            properties:
+              conditions:
+                description: Conditions follow the standard Available/Progressing/Degraded
+                  convention.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastRestartReason:
+                description: |-
+                  LastRestartReason records why the workload was last rolled.
+
+                  Every spec change here is a process restart, and a restart is not free on
+                  this engine, so "why did it restart" is a question that will be asked and
+                  currently has no answer anywhere in the system.
+                properties:
+                  detail:
+                    description: Detail names what specifically differed.
+                    maxLength: 512
+                    type: string
+                  reason:
+                    description: Reason is the classified cause.
+                    enum:
+                    - ConfigChanged
+                    - ImageChanged
+                    - ManualRestart
+                    - InitialRollout
+                    type: string
+                  time:
+                    description: Time is when the controller made the change.
+                    format: date-time
+                    type: string
+                required:
+                - reason
+                - time
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the .metadata.generation this status
+                  reflects.
+                format: int64
+                type: integer
+              renderedConfigHash:
+                description: RenderedConfigHash is the hash of the config the controller
+                  last rendered.
+                maxLength: 64
+                type: string
+              runningConfigHash:
+                description: |-
+                  RunningConfigHash is the hash of the config the live pod actually mounts.
+                  Every spec change is a restart, so a window where these differ is normal;
+                  a window that does not close means the rollout is stuck.
+                maxLength: 64
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

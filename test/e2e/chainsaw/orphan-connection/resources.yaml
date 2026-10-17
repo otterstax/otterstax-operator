@@ -1,0 +1,23 @@
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxServer
+metadata:
+  name: srv
+spec:
+  image: ghcr.io/otterstax/otterstax:not-published-yet
+  connectionSelector:
+    matchLabels:
+      server: srv
+---
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxConnection
+metadata:
+  name: typo
+  labels:
+    servers: srv   # deliberate typo: the server selects on "server"
+spec:
+  alias: lonely
+  clickhouse:
+    host: clickhouse
+    port: 9000
+    username: demo
+    database: ev

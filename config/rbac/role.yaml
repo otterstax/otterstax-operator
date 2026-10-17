@@ -1,0 +1,93 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - otterstax.com
+  resources:
+  - otterstaxconnections
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - otterstax.com
+  resources:
+  - otterstaxconnections/status
+  - otterstaxservers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - otterstax.com
+  resources:
+  - otterstaxservers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - otterstax.com
+  resources:
+  - otterstaxservers/finalizers
+  verbs:
+  - update

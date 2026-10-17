@@ -1,0 +1,15 @@
+# Projections rather than literal lists: Chainsaw compares slices by length, so
+# spelling out volumeMounts here would make the test fail every time an
+# unrelated mount is added — which says nothing about what this test is for.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: demo
+spec:
+  replicas: 1
+  template:
+    spec:
+      (containers[?name == 'otterstax']):
+        - (volumeMounts[?name == 'config']):
+            - mountPath: /etc/otterstax
+              readOnly: true

@@ -1,0 +1,6 @@
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxServer
+metadata:
+  name: novol
+spec:
+  image: ghcr.io/otterstax/otterstax:not-published-yet

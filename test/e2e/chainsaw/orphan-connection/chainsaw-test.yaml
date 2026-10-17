@@ -1,0 +1,47 @@
+# A connection whose labels match no server is in no config and has no effect.
+# It is not an error anywhere: nothing rejects it, nothing logs it, it simply
+# does nothing. With a selector-based binding model that is the most likely
+# user mistake, and the connection's own status is the only place it can be
+# reported.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: orphan-connection-says-so
+spec:
+  steps:
+    - name: a server and a connection that does not match it
+      try:
+        - apply:
+            file: resources.yaml
+
+    - name: the connection reports itself unbound, and says what to check
+      try:
+        - assert:
+            resource:
+              apiVersion: otterstax.com/v1alpha1
+              kind: OtterStaxConnection
+              metadata:
+                name: typo
+              status:
+                # JMESPath projection, not a literal list: Chainsaw compares
+                # slices by length by default, and asserting the whole list
+                # would break every time an unrelated condition is added.
+                (conditions[?type == 'Bound']):
+                  - status: "False"
+                    reason: NoServerSelectsIt
+
+    - name: fixing the label binds it
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl -n $NAMESPACE label otterstaxconnection typo servers- server=srv --overwrite
+        - assert:
+            resource:
+              apiVersion: otterstax.com/v1alpha1
+              kind: OtterStaxConnection
+              metadata:
+                name: typo
+              status:
+                (conditions[?type == 'Bound']):
+                  - status: "True"

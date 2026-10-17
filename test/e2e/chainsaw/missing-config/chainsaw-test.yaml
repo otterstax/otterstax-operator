@@ -1,0 +1,62 @@
+# Failure mode three, verified where it is actually decided: in the kubelet.
+#
+# A missing config does not stop this server. It warns — at a level compiled
+# out of the production image — applies defaults, serves on every port
+# with zero connections, and reports nothing. "The process is alive" is never
+# evidence of success here.
+#
+# The operator's answer is not detection but prevention: the config volume is
+# mounted with optional=false, so the kubelet refuses to start the container at
+# all. That converts a silent misconfiguration into a visible one. Nothing in
+# envtest can check this, because nothing in envtest mounts anything.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: missing-config-blocks-the-pod
+spec:
+  steps:
+    - name: create a server and let it settle
+      try:
+        - apply:
+            file: server.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: novol
+
+    - name: delete the config revision out from under it
+      try:
+        - script:
+            content: |
+              set -eu
+              rev=$(kubectl -n $NAMESPACE get statefulset novol \
+                -o jsonpath='{.spec.template.spec.volumes[?(@.name=="config")].secret.secretName}')
+
+              # Drop the ownerReference first, or the garbage collector simply
+              # recreates the relationship and the operator re-creates the
+              # Secret before the kubelet ever notices.
+              kubectl -n $NAMESPACE patch secret "$rev" --type=json \
+                -p='[{"op":"remove","path":"/metadata/ownerReferences"}]' >/dev/null 2>&1 || true
+              kubectl -n $NAMESPACE delete secret "$rev" --wait=true
+              kubectl -n $NAMESPACE delete pod novol-0 --ignore-not-found --wait=false
+
+    - name: the kubelet must refuse to start the container
+      try:
+        - script:
+            content: |
+              set -eu
+              # The pod must NOT reach Running with a missing config. Any of
+              # CreateContainerConfigError or a pending mount is the correct
+              # outcome; Running is the failure.
+              for i in $(seq 1 40); do
+                phase=$(kubectl -n $NAMESPACE get pod novol-0 -o jsonpath='{.status.phase}' 2>/dev/null || echo Gone)
+                ready=$(kubectl -n $NAMESPACE get pod novol-0 -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo false)
+                if [ "$ready" = "true" ]; then
+                  echo "the pod became ready without its config; the server would be serving with zero connections and reporting nothing" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+              echo "pod never became ready without its config, as intended (last phase: ${phase:-unknown})"

@@ -1,0 +1,16 @@
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxConnection
+metadata:
+  labels:
+    app.kubernetes.io/name: otterstax-operator
+    app.kubernetes.io/managed-by: kustomize
+    server: otterstaxserver-sample
+  name: otterstaxconnection-sample
+spec:
+  alias: mysql
+  mysql:
+    host: mariadb
+    port: 3306
+    username: demo
+    password: demo
+    database: bill

@@ -1,0 +1,29 @@
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxServer
+metadata:
+  name: demo
+spec:
+  # No published OtterStax image exists: upstream main pins a conan package
+  # that has been deleted from the remote. The pod therefore cannot pull, which
+  # is fine for everything this test asserts — the operator's own behaviour is
+  # observable regardless. What it cannot cover is the last mile: that the
+  # server process actually reads the new config and answers a query with it.
+  image: ghcr.io/otterstax/otterstax:not-published-yet
+  connectionSelector:
+    matchLabels:
+      server: demo
+---
+apiVersion: otterstax.com/v1alpha1
+kind: OtterStaxConnection
+metadata:
+  name: bill
+  labels:
+    server: demo
+spec:
+  alias: mysql
+  mysql:
+    host: mariadb
+    port: 3306
+    username: demo
+    password: demo
+    database: bill
